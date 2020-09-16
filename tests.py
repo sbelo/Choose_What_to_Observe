@@ -52,10 +52,10 @@ if __name__ == "__main__":
     verbose = 0
     dim_obs = int(state_space_high.size / 2)
     serial = True
-    prices = None # np.asarray([25,25,40,40])
+    prices = None #np.asarray([25,25,40,40])#,30,30])
     learn_steps = 1000
     iters = 1000
-    budget = np.inf
+    budget = np.inf # 2000
     n_eval_episodes = 100
     player_policy = 'MlpLstmPolicy'
     observer_policy = 'MlpLstmPolicy'
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     p_env.reset()
     o_env.reset()
 
-    mean_reward, std_reward = evaluate_policy(player, observer, test_env, n_eval_episodes=n_eval_episodes, deterministic=True, render=False, return_episode_rewards=False, serial=serial)
+    mean_reward, std_reward = evaluate_policy(player, observer, test_env, n_eval_episodes=n_eval_episodes, deterministic=True, render=False, return_episode_rewards=False, serial=serial,budget=budget,prices=prices)
     wandb.log({"mean_reward": mean_reward}, step=0)
     wandb.log({"std_reward": std_reward}, step=0)
 
@@ -112,7 +112,7 @@ if __name__ == "__main__":
         if verbose == 1:
             print("----------------------------------------------------------------------------")
         # evaluate:
-        mean_reward, std_reward = evaluate_policy(player, observer, test_env, n_eval_episodes=n_eval_episodes, deterministic=True, render=False, return_episode_rewards=False, serial=serial)
+        mean_reward, std_reward = evaluate_policy(player, observer, test_env, n_eval_episodes=n_eval_episodes, deterministic=True, render=False, return_episode_rewards=False, serial=serial, budget=budget,prices=prices)
         print("Evaluation at " + str(iter) + " epochs: mean reward: " + str(mean_reward) + ", std reward: " + str(std_reward))
         wandb.log({"mean_reward": mean_reward}, step=iter)
         wandb.log({"std_reward": std_reward}, step=iter)

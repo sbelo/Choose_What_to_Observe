@@ -142,7 +142,7 @@ class OBSERVER_ENV(Wrapper):
 
 
 # def evaluate_policies(env,player,observer)
-def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic = True, render = False, return_episode_rewards = False, serial = False):
+def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic = True, render = False, return_episode_rewards = False, serial = False,budget = None, prices = None):
     episode_rewards, episode_lengths = [], []
     finished = False
     obs = env.reset()
@@ -152,6 +152,11 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
     dones, p_states, o_states = np.zeros(env.num_envs,dtype=bool), None, None
     episode_reward = np.zeros(env.num_envs)
     episode_length = np.zeros(env.num_envs)
+    if prices is None:
+        prices = np.zeros(obs.shape[1])
+    if budget is None:
+        budget = np.inf
+    curr_budget = budget*np.ones(env.num_envs)
     while True:
         if serial:
             masks = np.zeros(masks.shape)
@@ -159,6 +164,12 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
                 masks[:,dd], o_states = observer.predict(np.concatenate([masks,masked_obs],axis=1), state=o_states, mask=dones, deterministic=deterministic)
         else:
             masks, o_states = observer.predict(np.concatenate([masks,masked_obs],axis=1), state=o_states, mask=dones, deterministic=deterministic)
+        masks_tmp = np.zeros(masks.shape)
+        masks_tmp[curr_budget > 0,:] = masks[curr_budget > 0,:]
+        masks = masks_tmp
+        curr_budget -= prices @ masks.T
+
+
         masked_obs = np.multiply(masks,obs)
         actions, p_states = player.predict(np.concatenate([masks,masked_obs],axis=1), state=p_states, mask=dones, deterministic=deterministic)
         obs, rewards, dones, _infos = env.step(actions)
@@ -175,6 +186,7 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
                 evals_left -= 1
                 masks[ee,:] = 0 * masks[ee,:]
                 masked_obs[ee,:] = 0 * masked_obs[ee,:]
+                curr_budget[ee] = budget
                 if evals_left <= 0:
                     finished = True
                     break
