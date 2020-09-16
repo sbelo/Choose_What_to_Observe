@@ -13,10 +13,6 @@ class PLAYER_ENV(Wrapper):
         self.budget_orig = budget
         self.budget = budget
         self.prices = prices
-        # self.multi_env = multi_env
-        # if not multi_env:
-        #     self.observer = observer
-        #     self.num_envs = 1
         super().__init__(env)
         ss = 1
         for aa in self.observation_space.shape:
@@ -29,16 +25,6 @@ class PLAYER_ENV(Wrapper):
         stat = list(stat)
         if self.budget <= 0:
             stat[0] = 0*stat[0]
-        # if not self.multi_env and self.budget > 0:
-        #     if self.serial:
-        #         mask = np.zeros(stat[0].shape)
-        #         for dd in range(stat[0].size):
-        #             mask[dd], _ = self.observer.predict(np.concatenate([mask,self._last_masked]))
-        #     else:
-        #         mask, _= self.observer.predict(self._last_masked)
-        #     stat[0] = np.multiply(np.reshape(mask,stat[0].shape),stat[0])
-        #     self._last_masked = stat[0]
-        #     self.budget -= mask @ self.prices
         return stat
 
     def update_budget(self,action):
@@ -63,10 +49,6 @@ class OBSERVER_ENV(Wrapper):
         self.budget_orig = budget
         self.budget = budget
         self.prices = prices
-        # self.multi_env = multi_env
-        # if not multi_env:
-        #     self.player = player
-        #     self.num_envs = 1
         super().__init__(env)
         self._last_obs = None
         self.last_action = None
@@ -83,12 +65,10 @@ class OBSERVER_ENV(Wrapper):
             self.ser_counter = self.dim_act
             self.ser_curr_mask = np.zeros(self.dim_act)
             self.action_space = Discrete(2)
-            self.valid_rew = False
         else:
             self.action_space = MultiBinary(self.dim_act)
 
     def step(self, action):
-        self.last_action = action
         assert self._last_obs is not None, "self._last_obs is None!"
         r_action = action
         if self.budget > 0:
@@ -96,51 +76,41 @@ class OBSERVER_ENV(Wrapper):
                 self.ser_curr_mask[self.dim_act-self.ser_counter] = action
                 self.ser_counter -= 1
                 r_action = self.ser_curr_mask.copy()
+                self.last_action = r_action
                 if self.ser_counter == 0:
-                    # r_action = self.ser_curr_mask.copy()
                     self.ser_counter = self.dim_act
                     self.ser_curr_mask = np.zeros(self.dim_act)
                     self.ser_done = True
                 else:
-                    # if self.multi_env:
                     return CHECK_(np.concatenate([np.reshape(r_action,self._last_obs.shape),self._last_masked_obs]))
-                    # else:
-                    #     return np.concatenate([np.reshape(r_action,self._last_obs.shape),self._last_masked_obs]), 0.0, self._last_done, {}
-                #     return np.concatenate([np.reshape(r_action, self._last_obs.shape), self._last_masked_obs]), 0.0, False, {}
+            else:
+                self.last_action = action.copy()
             masked_obs = np.multiply(np.reshape(r_action,self._last_obs.shape),self._last_obs)
             self._last_masked_obs = masked_obs.copy()
             self.budget -= r_action @ self.prices
         else:
             masked_obs = 0*self._last_obs
             r_action = np.zeros(self.dim_act)
+            if self.serial:
+                self.last_action = np.zeros(self.dim_act)
+                self.ser_done = True
 
-        # stat = None
-        # if not self.multi_env:
-        #     p_action, _ = self.player.predict(masked_obs)
-        #     stat = super().step(p_action)
-        #     stat = list(stat)
-        #     self._last_obs = stat[0]
-        #     if self.budget_constraint is not None:
-        #         stat[1] = self.budget_constraint(stat[1],r_action,self.prices)
-        # if self.serial:
-        masked_obs = np.concatenate([r_action,masked_obs])
-        # if stat is None:
+        if self.serial:
+            masked_obs = np.concatenate([np.zeros(r_action.shape),masked_obs])
+        else:
+            masked_obs = np.concatenate([r_action, masked_obs])
         stat = CHECK_(masked_obs)
-        # else:
-        #     stat[0] = masked_obs
         return stat
 
     def player_step(self,action):
         if self.serial:
             if self.ser_done:
-                self.valid_rew = True
                 self.ser_done = False
                 stat = super().step(action)
                 stat = list(stat)
                 stat[0] = np.concatenate([np.zeros(self._last_obs.shape),stat[0]])
                 self._last_obs = stat[0][self.dim_act:]
             else:
-                self.valid_rew = False
                 return np.concatenate([np.reshape(self.ser_curr_mask, self._last_obs.shape), self._last_masked_obs]), 0.0, self._last_done, {}
         else:
             stat = super().step(action)
@@ -161,8 +131,6 @@ class OBSERVER_ENV(Wrapper):
         if self.serial:
             self._last_masked_obs = np.zeros(self.dim_act)
             self._last_obs = np.zeros(self.dim_act)
-            self.valid_rew = False
-            # return np.zeros(2*self.dim_act)
         return np.zeros(2*self.dim_act)
 
     def set_last_obs(self,obs):
@@ -176,7 +144,6 @@ class OBSERVER_ENV(Wrapper):
 # def evaluate_policies(env,player,observer)
 def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic = True, render = False, return_episode_rewards = False, serial = False):
     episode_rewards, episode_lengths = [], []
-    # for i in range(n_eval_episodes):
     finished = False
     obs = env.reset()
     masks = 0 * obs
@@ -215,9 +182,6 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
             break
         if render:
             env.render()
-    # for rr in range(env.num_envs):
-    #     episode_rewards.append(episode_reward[rr])
-    #     episode_lengths.append(episode_length[rr])
     mean_reward = np.mean(episode_rewards)
     std_reward = np.std(episode_rewards)
     if return_episode_rewards:

@@ -52,11 +52,11 @@ if __name__ == "__main__":
     verbose = 0
     dim_obs = int(state_space_high.size / 2)
     serial = True
-    prices = None # np.asarray([10,20,30,40])
+    prices = None # np.asarray([25,25,40,40])
     learn_steps = 1000
     iters = 1000
     budget = np.inf
-    n_eval_episodes = 10
+    n_eval_episodes = 100
     player_policy = 'MlpLstmPolicy'
     observer_policy = 'MlpLstmPolicy'
     ######################################################################
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     alpha = 0
     def budget_constraint(reward,actions,prices):
         total_cost = actions @ prices
-        constraint_reward = reward -alpha*(total_cost/budget)
+        constraint_reward = reward -alpha*(total_cost)
         return constraint_reward
     ######################################################################
     # Setup environments:
@@ -109,6 +109,8 @@ if __name__ == "__main__":
         player.learn(total_timesteps=learn_steps)
         o_env.set_model(player)
 
+        if verbose == 1:
+            print("----------------------------------------------------------------------------")
         # evaluate:
         mean_reward, std_reward = evaluate_policy(player, observer, test_env, n_eval_episodes=n_eval_episodes, deterministic=True, render=False, return_episode_rewards=False, serial=serial)
         print("Evaluation at " + str(iter) + " epochs: mean reward: " + str(mean_reward) + ", std reward: " + str(std_reward))

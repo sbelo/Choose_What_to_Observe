@@ -15,16 +15,8 @@ def _worker(remote, parent_remote, env_fn_wrapper):
     while True:
         try:
             cmd, data = remote.recv()
-            # if cmd == "step":
-            #     observation, reward, done, info = env.step(data)
-            #     if done:
-            #         # save final observation where user can get it, then reset
-            #         info["terminal_observation"] = observation
-            #         observation = env.reset()
-            #     remote.send((observation, reward, done, info))
             if cmd == "step":
                 stat = env.step(data)
-                # stat = list(stat)
                 if isinstance(stat,CHECK_):
                     remote.send(stat.data)
                 else:
@@ -43,8 +35,6 @@ def _worker(remote, parent_remote, env_fn_wrapper):
                 remote.send((observation, reward, done, info))
             elif cmd == "update_budget":
                 env.update_budget(data)
-            elif cmd == "is_ser_valid":
-                remote.send(env.valid_rew)
             elif cmd == "is_ser_done":
                 remote.send(env.ser_done)
             elif cmd == "get_last_action":
@@ -175,12 +165,6 @@ class SubprocVecEnv(VecEnv):
 
         else:
             obs = _flatten_obs(results, self.observation_space)
-            # if self.serial:
-            #     obs_t = np.zeros([obs.shape[0],int(obs.shape[1]/2)])
-            #     for ii in range(obs.shape[0]):
-            #         obs_t[ii] = obs[ii][int(obs.shape[1]/2):]
-            #     actions = self.model.i_predict(obs_t,self._last_dones)
-            # else:
             valid_predict = True
             if self.serial:
                 for remote in self.remotes:
@@ -188,33 +172,27 @@ class SubprocVecEnv(VecEnv):
                 ser_dones = np.asarray([remote.recv() for remote in self.remotes])
                 if False in ser_dones:
                     valid_predict = False
-
             if valid_predict:
-                actions = self.model.i_predict(obs,self._last_dones)
-            else:
-                actions = None
-
-            self.player_step_async(actions)
-            results2 = [remote.recv() for remote in self.remotes]
-            last_obs, rews, dones, infos = zip(*results2)
-            self._last_dones = dones
-            if self.budget_constraint is not None:
-                cont_rews = []
                 for remote in self.remotes:
                     remote.send(("get_last_action", None))
-                obs_actions = [remote.recv() for remote in self.remotes]
-                if self.serial:
-                    for remote in self.remotes:
-                        remote.send(("is_ser_valid", None))
-                    valids = [remote.recv() for remote in self.remotes]
+                last_actions = np.stack([remote.recv() for remote in self.remotes])
+                actions = self.model.i_predict(np.concatenate([last_actions,obs[:,int(obs.shape[1]/2):]],axis=1),self._last_dones)
+                self.player_step_async(actions)
+                results2 = [remote.recv() for remote in self.remotes]
+                last_obs, rews, dones, infos = zip(*results2)
+                self._last_dones = dones
+                if self.budget_constraint is not None:
+                    cont_rews = []
+                    for ee in range(self.num_envs):
+                        cont_rews.append(self.budget_constraint(rews[ee], last_actions[ee], self.model.prices))
+                    rews = np.stack(cont_rews)
+            else:
+                rews = np.zeros(self.num_envs)
+                if self._last_dones is None:
+                    dones = [False for _ in range(self.num_envs)]
                 else:
-                    valids = np.ones(self.num_envs,dtype=bool)
-                for obs_action, rew, valid in zip(obs_actions,rews,valids):
-                    if valid:
-                        cont_rews.append(self.budget_constraint(rew, obs_action, self.model.prices))
-                    else:
-                        cont_rews.append(rew)
-                rews = np.stack(cont_rews)
+                    dones = self._last_dones
+                infos = [{} for _ in range(self.num_envs)]
 
         self.waiting = False
         return obs, np.stack(rews), np.stack(dones), infos
