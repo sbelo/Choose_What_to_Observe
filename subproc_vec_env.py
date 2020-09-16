@@ -91,7 +91,7 @@ class SubprocVecEnv(VecEnv):
            Defaults to 'forkserver' on available platforms, and 'spawn' otherwise.
     """
 
-    def __init__(self, env_fns, player_flag, model = None, lstm_flag = True, start_method=None, budget_constraint=None, serial=False):
+    def __init__(self, env_fns, player_flag, model = None, lstm_flag = True, start_method=None, reward_shaping=None, serial=False, prices=None):
         self.waiting = False
         self.closed = False
         n_envs = len(env_fns)
@@ -100,7 +100,8 @@ class SubprocVecEnv(VecEnv):
         self.serial = serial
         self.player_flag = player_flag
         self.lstm_flag = lstm_flag
-        self.budget_constraint = budget_constraint
+        self.reward_shaping = reward_shaping
+        self.prices = prices
         if not player_flag:
             self._last_dones = None
         if lstm_flag:
@@ -160,6 +161,11 @@ class SubprocVecEnv(VecEnv):
             self._last_masked = np.multiply(masks,obs)
             obs = np.concatenate([masks,self._last_masked],axis=1)
 
+            cont_rews = []
+            for ee in range(self.num_envs):
+                cont_rews.append(self.reward_shaping(rews[ee], masks[ee], self.prices))
+            rews = np.stack(cont_rews)
+
             for remote, act in zip(self.remotes,masks):
                 remote.send(("update_budget",act))
 
@@ -181,10 +187,10 @@ class SubprocVecEnv(VecEnv):
                 results2 = [remote.recv() for remote in self.remotes]
                 last_obs, rews, dones, infos = zip(*results2)
                 self._last_dones = dones
-                if self.budget_constraint is not None:
+                if self.reward_shaping is not None:
                     cont_rews = []
                     for ee in range(self.num_envs):
-                        cont_rews.append(self.budget_constraint(rews[ee], last_actions[ee], self.model.prices))
+                        cont_rews.append(self.reward_shaping(rews[ee], last_actions[ee], self.prices))
                     rews = np.stack(cont_rews)
             else:
                 rews = np.zeros(self.num_envs)
@@ -207,6 +213,11 @@ class SubprocVecEnv(VecEnv):
             remote.send(("reset", None))
         obs = [remote.recv() for remote in self.remotes]
         obs = _flatten_obs(obs, self.observation_space)
+        if self.prices is None:
+            if self.player_flag:
+                self.prices = np.zeros(obs.shape[1])
+            else:
+                self.prices = np.zeros(int(obs.shape[1]/2))
         self._last_masked = 0 * obs
         if self.player_flag:
             self._last_masks = 0 * obs

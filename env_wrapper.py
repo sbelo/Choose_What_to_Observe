@@ -45,14 +45,13 @@ class PLAYER_ENV(Wrapper):
 
 
 class OBSERVER_ENV(Wrapper):
-    def __init__(self, env, budget=np.inf, prices=None, budget_constraint=None,serial=False,ser_observ_space=None):
+    def __init__(self, env, budget=np.inf, prices=None,serial=False,ser_observ_space=None):
         self.budget_orig = budget
         self.budget = budget
         self.prices = prices
         super().__init__(env)
         self._last_obs = None
         self.last_action = None
-        self.budget_constraint = budget_constraint
 
         ss = 1
         for aa in self.observation_space.shape:
@@ -142,14 +141,15 @@ class OBSERVER_ENV(Wrapper):
 
 
 # def evaluate_policies(env,player,observer)
-def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic = True, render = False, return_episode_rewards = False, serial = False,budget = None, prices = None):
-    episode_rewards, episode_lengths = [], []
+def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic = True, render = False, return_episode_rewards = False, serial = False,budget = None, prices = None, reward_shaping = None):
+    shaped_episode_rewards, episode_rewards, episode_lengths = [], [], []
     finished = False
     obs = env.reset()
     masks = 0 * obs
     evals_left = n_eval_episodes
     masked_obs = np.multiply(masks,obs)
     dones, p_states, o_states = np.zeros(env.num_envs,dtype=bool), None, None
+    shaped_episode_reward = np.zeros(env.num_envs)
     episode_reward = np.zeros(env.num_envs)
     episode_length = np.zeros(env.num_envs)
     if prices is None:
@@ -174,12 +174,17 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
         actions, p_states = player.predict(np.concatenate([masks,masked_obs],axis=1), state=p_states, mask=dones, deterministic=deterministic)
         obs, rewards, dones, _infos = env.step(actions)
         episode_reward += rewards
-
         episode_length += np.ones(env.num_envs)
+        if reward_shaping is not None:
+            for ee in range(env.num_envs):
+                shaped_episode_reward[ee] += reward_shaping(rewards[ee],masks[ee],prices)
 
         for ee in range(env.num_envs):
             if dones[ee]:
                 episode_rewards.append(episode_reward[ee])
+                if reward_shaping is not None:
+                    shaped_episode_rewards.append(shaped_episode_reward[ee])
+                    shaped_episode_reward[ee] = 0
                 episode_lengths.append(episode_length[ee])
                 episode_reward[ee] = 0
                 episode_length[ee] = 0
@@ -196,6 +201,16 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
             env.render()
     mean_reward = np.mean(episode_rewards)
     std_reward = np.std(episode_rewards)
+
+    mean_shaped_reward = np.mean(shaped_episode_rewards)
+    std_shaped_reward = np.std(shaped_episode_rewards)
     if return_episode_rewards:
-        return episode_rewards, episode_lengths
-    return mean_reward, std_reward
+        if reward_shaping is not None:
+            return shaped_episode_rewards, episode_rewards, episode_lengths
+        else:
+            return episode_rewards, episode_lengths
+
+    if reward_shaping is not None:
+        return mean_shaped_reward, std_shaped_reward, mean_reward, std_reward
+    else:
+        return mean_reward, std_reward
