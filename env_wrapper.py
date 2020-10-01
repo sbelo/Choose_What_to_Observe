@@ -130,6 +130,7 @@ class OBSERVER_ENV(Wrapper):
         if self.serial:
             self._last_masked_obs = np.zeros(self.dim_act)
             self._last_obs = np.zeros(self.dim_act)
+            self.ser_counter = self.dim_act
         return np.zeros(2*self.dim_act)
 
     def set_last_obs(self,obs):
@@ -157,21 +158,25 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
     if budget is None:
         budget = np.inf
     curr_budget = budget*np.ones(env.num_envs)
+    mask_hist = None
     while True:
         if serial:
             masks = np.zeros(masks.shape)
             for dd in range(masks.shape[1]):
-                masks[:,dd], o_states = observer.predict(np.concatenate([masks,masked_obs],axis=1), state=o_states, mask=dones, deterministic=deterministic)
+                masks[:,dd] = observer.i_predict(np.concatenate([masks,masked_obs],axis=1), dones)# state=o_states, mask=dones, deterministic=deterministic)
         else:
-            masks, o_states = observer.predict(np.concatenate([masks,masked_obs],axis=1), state=o_states, mask=dones, deterministic=deterministic)
+            masks = observer.i_predict(np.concatenate([masks,masked_obs],axis=1), dones)#state=o_states, mask=dones, deterministic=deterministic)
         masks_tmp = np.zeros(masks.shape)
         masks_tmp[curr_budget > 0,:] = masks[curr_budget > 0,:]
         masks = masks_tmp
         curr_budget -= prices @ masks.T
 
-
+        if mask_hist is None:
+            mask_hist = masks
+        else:
+            mask_hist += masks
         masked_obs = np.multiply(masks,obs)
-        actions, p_states = player.predict(np.concatenate([masks,masked_obs],axis=1), state=p_states, mask=dones, deterministic=deterministic)
+        actions = player.i_predict(np.concatenate([masks,masked_obs],axis=1), dones) #state=p_states, mask=dones, deterministic=deterministic)
         obs, rewards, dones, _infos = env.step(actions)
         episode_reward += rewards
         episode_length += np.ones(env.num_envs)
@@ -204,6 +209,8 @@ def evaluate_policy(player, observer, env, n_eval_episodes = 10, deterministic =
 
     mean_shaped_reward = np.mean(shaped_episode_rewards)
     std_shaped_reward = np.std(shaped_episode_rewards)
+    mask_hist = np.sum(mask_hist,axis=0)
+    mask_hist = (1.0/n_eval_episodes)*mask_hist
     if return_episode_rewards:
         if reward_shaping is not None:
             return shaped_episode_rewards, episode_rewards, episode_lengths

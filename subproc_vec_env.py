@@ -9,6 +9,24 @@ import numpy as np
 from stable_baselines3.common.vec_env.base_vec_env import CloudpickleWrapper, VecEnv
 
 
+def pack_obs_act(actions,num_envs):
+    packed_actions = np.zeros(num_envs)
+    weight_vec = 2**(np.arange(actions.shape[1])[::-1])
+    for i in range(num_envs):
+        packed_actions[i] = weight_vec @ actions[i]
+    return packed_actions
+
+def unpack_obs_act(packed_actions,dim_act):
+    weight_vec = 2**(np.arange(dim_act)[::-1])
+    actions = np.zeros([len(packed_actions),dim_act])
+    tmp_p_act = packed_actions.copy()
+    for i in range(dim_act):
+        mask = tmp_p_act >= weight_vec[i]
+        if True in mask:
+            actions[mask,i] += 1
+            tmp_p_act[mask] -= weight_vec[i]
+    return actions
+
 def _worker(remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
     env = env_fn_wrapper.var()
@@ -91,7 +109,7 @@ class SubprocVecEnv(VecEnv):
            Defaults to 'forkserver' on available platforms, and 'spawn' otherwise.
     """
 
-    def __init__(self, env_fns, player_flag, model = None, lstm_flag = True, start_method=None, reward_shaping=None, serial=False, prices=None):
+    def __init__(self, env_fns, player_flag, model = None, lstm_flag = True, start_method=None, reward_shaping=None, serial=False, prices=None, monitor=False):
         self.waiting = False
         self.closed = False
         n_envs = len(env_fns)
@@ -102,6 +120,14 @@ class SubprocVecEnv(VecEnv):
         self.lstm_flag = lstm_flag
         self.reward_shaping = reward_shaping
         self.prices = prices
+        self.monitor = monitor
+        self.episode_rewards = []# [[] for _ in range(self.num_envs)]
+        self.episode_lengths = []# [[] for _ in range(self.num_envs)]
+        if monitor:
+            self.cumm_rewards = np.zeros(n_envs)
+            self.cumm_lengths = np.zeros(n_envs)
+            self.mon_actions = [[] for _ in range(n_envs)]
+            self.actions_trajectory = []
         if not player_flag:
             self._last_dones = None
         if lstm_flag:
@@ -160,6 +186,10 @@ class SubprocVecEnv(VecEnv):
             self._last_masks = masks
             self._last_masked = np.multiply(masks,obs)
             obs = np.concatenate([masks,self._last_masked],axis=1)
+            if self.monitor:
+                packed_actions = pack_obs_act(masks,self.num_envs)
+                for jj in range(self.num_envs):
+                    self.mon_actions[jj].append(packed_actions[jj])
 
             cont_rews = []
             for ee in range(self.num_envs):
@@ -182,6 +212,10 @@ class SubprocVecEnv(VecEnv):
                 for remote in self.remotes:
                     remote.send(("get_last_action", None))
                 last_actions = np.stack([remote.recv() for remote in self.remotes])
+                if self.monitor:
+                    packed_actions = pack_obs_act(last_actions,self.num_envs)
+                    for jj in range(self.num_envs):
+                        self.mon_actions[jj].append(packed_actions[jj])
                 actions = self.model.i_predict(np.concatenate([last_actions,obs[:,int(obs.shape[1]/2):]],axis=1),self._last_dones)
                 self.player_step_async(actions)
                 results2 = [remote.recv() for remote in self.remotes]
@@ -193,14 +227,33 @@ class SubprocVecEnv(VecEnv):
                         cont_rews.append(self.reward_shaping(rews[ee], last_actions[ee], self.prices))
                     rews = np.stack(cont_rews)
             else:
+
                 rews = np.zeros(self.num_envs)
+
                 if self._last_dones is None:
+                    dones = [False for _ in range(self.num_envs)]
+                elif self.serial:
                     dones = [False for _ in range(self.num_envs)]
                 else:
                     dones = self._last_dones
                 infos = [{} for _ in range(self.num_envs)]
 
         self.waiting = False
+        if self.monitor:
+            self.cumm_rewards += np.stack(rews)
+            self.cumm_lengths += np.ones(self.cumm_lengths.shape)
+            for i in range(self.num_envs):
+                if dones[i]:
+                    # self.episode_rewards[i].append(self.cumm_rewards[i])
+                    # self.episode_lengths[i].append(self.cumm_lengths[i])
+                    self.episode_rewards.append(self.cumm_rewards[i])
+                    self.episode_lengths.append(self.cumm_lengths[i])
+                    self.cumm_rewards[i] = 0
+                    self.cumm_lengths[i] = 0
+                    self.actions_trajectory.append(np.asarray(self.mon_actions[i]))
+                    self.mon_actions[i] = []
+
+
         return obs, np.stack(rews), np.stack(dones), infos
 
     def seed(self, seed=None):
@@ -208,7 +261,16 @@ class SubprocVecEnv(VecEnv):
             remote.send(("seed", seed + idx))
         return [remote.recv() for remote in self.remotes]
 
+    def remove_history(self):
+        self.episode_rewards = []# [[] for _ in range(self.num_envs)]
+        self.episode_lengths = []#[[] for _ in range(self.num_envs)]
+        self.actions_trajectory = []
+
     def reset(self):
+        if self.monitor:
+            self.cumm_lengths = np.zeros(self.num_envs)
+            self.cumm_rewards = np.zeros(self.num_envs)
+            self.mon_actions = [[] for _ in range(self.num_envs)]
         for remote in self.remotes:
             remote.send(("reset", None))
         obs = [remote.recv() for remote in self.remotes]
@@ -277,6 +339,14 @@ class SubprocVecEnv(VecEnv):
         indices = self._get_indices(indices)
         return [self.remotes[i] for i in indices]
 
+    def get_episode_rewards(self):
+        return self.episode_rewards
+
+    def get_episode_lengths(self):
+        return self.episode_lengths
+
+    def get_actions_trajectory(self):
+        return self.actions_trajectory
 
 def _flatten_obs(obs, space):
     """
