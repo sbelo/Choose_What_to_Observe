@@ -76,8 +76,8 @@ if __name__ == "__main__":
     ######################################################################
     # Setup environments:
     # define fake environments for training:
-    p_env = SubprocVecEnv([lambda : PLAYER_ENV(work_env.make(env_name), budget=budget, prices=prices,serial=serial,ser_observ_space=obs_space) for _ in range(num_cpu)],player_flag=True,serial=serial,reward_shaping=reward_shaping_ply,prices=prices,monitor=monitor)
-    o_env = SubprocVecEnv([lambda : OBSERVER_ENV(work_env.make(env_name), budget=budget, prices=prices, serial=serial,ser_observ_space=obs_space) for _ in range(num_cpu)],player_flag=False,serial=serial,reward_shaping=reward_shaping_obs,prices=prices,monitor=monitor)
+    p_env = SubprocVecEnv1([lambda : PLAYER_ENV(work_env.make(env_name), budget=budget, prices=prices,serial=serial,ser_observ_space=obs_space) for _ in range(num_cpu)],player_flag=True,serial=serial,reward_shaping=reward_shaping_ply,prices=prices,monitor=monitor)
+    o_env = SubprocVecEnv1([lambda : OBSERVER_ENV(work_env.make(env_name), budget=budget, prices=prices, serial=serial,ser_observ_space=obs_space) for _ in range(num_cpu)],player_flag=False,serial=serial,reward_shaping=reward_shaping_obs,prices=prices,monitor=monitor)
     # define test environment
     test_env = org_sub_vec.SubprocVecEnv([lambda : work_env.make(env_name) for _ in range(num_cpu)])
     ######################################################################
@@ -128,10 +128,10 @@ if __name__ == "__main__":
     p_env.reset()
     o_env.reset()
 
-    # mean_shaped_reward, std_shaped_reward, mean_reward, std_reward = evaluate_policy(player, observer, test_env, n_eval_episodes=n_eval_episodes, deterministic=True, render=False, return_episode_rewards=False, serial=serial,budget=budget,prices=prices,reward_shaping=reward_shaping)
-    # print("Evaluation at 0 epochs: mean reward: " + str(mean_reward) + ", std reward: " + str(
-    #     std_reward) + ", mean shaped reward: " + str(mean_shaped_reward) + ", std shaped reward: " + str(
-    #     std_shaped_reward))
+    mean_shaped_reward, std_shaped_reward, mean_reward, std_reward = evaluate_policy(player, observer, test_env, n_eval_episodes=n_eval_episodes, deterministic=True, render=False, return_episode_rewards=False, serial=serial,budget=budget,prices=prices,reward_shaping=reward_shaping)
+    print("Evaluation at 0 epochs: mean reward: " + str(mean_reward) + ", std reward: " + str(
+        std_reward) + ", mean shaped reward: " + str(mean_shaped_reward) + ", std shaped reward: " + str(
+        std_shaped_reward))
     # wandb.log({"mean_reward": mean_reward}, step=0)
     # wandb.log({"std_reward": std_reward}, step=0)
     # wandb.log({"mean_shaped_reward": mean_shaped_reward}, step=0)
