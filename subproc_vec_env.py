@@ -5,8 +5,8 @@ from env_wrapper import *
 
 import gym
 import numpy as np
-
-from stable_baselines.common.vec_env.base_vec_env import CloudpickleWrapper, VecEnv
+from stable_baselines.common.vec_env.base_vec_env import VecEnv, CloudpickleWrapper
+# from stable_baselines3.common.vec_env.base_vec_env import CloudpickleWrapper, VecEnv
 
 
 def pack_obs_act(actions,num_envs):
@@ -85,7 +85,7 @@ def _worker(remote, parent_remote, env_fn_wrapper):
             break
 
 
-class SubprocVecEnv(VecEnv):
+class SubprocVecEnv1(VecEnv):
     """
     Creates a multiprocess vectorized wrapper for multiple environments, distributing each environment to its own
     process, allowing significant speed up when the environment is computationally complex.
