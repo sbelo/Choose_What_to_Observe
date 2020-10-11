@@ -140,6 +140,7 @@ if __name__ == "__main__":
     parser.add_argument('--game', help='name of env', default='hiv', choices=['cartpole','hiv'])
     parser.add_argument('--run_ID', help='run identifier (logging)', type=int, default=0)
     parser.add_argument('--cuda_idx', help='gpu to use ', type=int, default=None)
+    parser.add_argument('--secondary_cuda_idx', help='gpu to use - for parallel work', type=int, default=None)
     parser.add_argument('--sample_mode', help='serial or parallel sampling',
                         type=str, default='cpu', choices=['serial', 'cpu'])
     parser.add_argument('--n_parallel', help='number of sampler workers', type=int, default=2)
@@ -156,10 +157,16 @@ if __name__ == "__main__":
     if args.wandb:
         wandb.init(project=args.wandb_project,name=args.wandb_run_name)
 
+    if args.secondary_cuda_idx is not None:
+        assert args.cuda_idx is not None
+        cuda_idxs = [args.cuda_idx, args.secondary_cuda_idx]
+    else:
+        cuda_idxs = args.cuda_idx
+
     build_and_train(
         game=args.game,
         run_ID=args.run_ID,
-        cuda_idx=args.cuda_idx,
+        cuda_idx=cuda_idxs,
         sample_mode=args.sample_mode,
         n_parallel=args.n_parallel,
         eval=args.eval,

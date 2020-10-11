@@ -114,8 +114,12 @@ class CWTO_AgentWrapper:
         self.observer.toggle_alt()
 
     def to_device(self,cuda_idx=None):
-        self.player.to_device(cuda_idx=cuda_idx)
-        self.observer.to_device(cuda_idx=cuda_idx)
+        if isinstance(cuda_idx,list):
+            self.player.to_device(cuda_idx=cuda_idx[0])
+            self.observer.to_device(cuda_idx=cuda_idx[1])
+        else:
+            self.player.to_device(cuda_idx=cuda_idx)
+            self.observer.to_device(cuda_idx=cuda_idx)
 
     def async_cpu(self, share_memory=True):
         self.player.async_cpu(share_memory=share_memory)
